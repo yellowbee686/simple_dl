@@ -20,13 +20,14 @@ class SimpleAttention(nn.Module):
         return mask
     
     def _scale_dot_attention(self, q, k, v, mask):
-        qk = torch.matmul(q, k)
+        # q k v均为 [B, n_head, seq, h_dim]
+        qk = torch.matmul(q, k.transpose(-1, -2)) # [B, n_head, seq, seq]
         scale = torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
         logits = qk / scale
         if mask:
             logits += mask * 1e-9
-        attention_weights = F.softmax(logits, dim=-1)
-        output = torch.matmul(attention_weights, v)
+        attention_weights = F.softmax(logits, dim=-1) # [B, n_head, seq, seq]
+        output = torch.matmul(attention_weights, v) # [B, n_head, seq, h_dim]
         return output
 
     def forward(self, x, mask):
