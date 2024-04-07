@@ -39,6 +39,7 @@ class SimpleAttention(nn.Module):
         K = self.Wk(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.Wv(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         self.attention_output = self._scale_dot_attention(Q, K, V, mask).transpose(1, 2).contiguous().view(batch_size, -1, self.hidden_dim)
-        normed_output = self.post_norm(self.attention_output + x)
-        output = self.fc_out(normed_output)
+        output = self.fc_out(self.attention_output)
+        # llama2的attention_output直接乘w_out后再做post_norm以及与x相加
+        # normed_output = self.post_norm(self.attention_output + x)
         return output
