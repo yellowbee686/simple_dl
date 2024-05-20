@@ -1,5 +1,6 @@
 import torch.nn as nn
 from typing import Optional
+import torch.nn.functional as F
 
 class FeedForward(nn.Module):
     def __init__(
@@ -28,4 +29,15 @@ class FeedForward(nn.Module):
 
     def forward(self, x):
         # x乘以两个不同的权重矩阵，其中一个过silu，两者均上采样，再乘以w2压缩回原先的维度
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+    
+
+class FFNSimple(nn.Module):
+    def __init__(self, in_features, hidden_dim):
+        super().__init__()
+        self.w1 = nn.Linear(in_features, hidden_dim, bias=False)
+        self.w2 = nn.Linear(hidden_dim, in_features, bias=False)
+        self.w3 = nn.Linear(in_features, hidden_dim, bias=False)
+
+    def forward(self, x):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
