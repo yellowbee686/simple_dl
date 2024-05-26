@@ -45,3 +45,11 @@ class SwiGLU(nn.Module):
         gate = self.swish(self.gate_layer(x))
         value = self.value_layer(x)
         return gate * value
+
+
+class SimpleSigmoid(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return 1 / (1 + torch.exp(-x))    
