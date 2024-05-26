@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from utils import RMSNorm
 
 class SimpleAttention(nn.Module):
     def __init__(self, hidden_dim, num_heads):
@@ -12,8 +12,8 @@ class SimpleAttention(nn.Module):
         self.Wq = nn.Linear(hidden_dim, hidden_dim)
         self.Wk = nn.Linear(hidden_dim, hidden_dim)
         self.Wv = nn.Linear(hidden_dim, hidden_dim)
-        self.post_norm = nn.LayerNorm(hidden_dim)
-        self.fc_out = nn.Linear(hidden_dim, hidden_dim)
+        self.post_norm = RMSNorm(hidden_dim)
+        self.fc_out = nn.Linear(hidden_dim, hidden_dim, bias=False)
 
     def _create_look_ahead_mask(self, size):
         mask = torch.ones(size, size).triu(diagonal=1)
@@ -41,5 +41,5 @@ class SimpleAttention(nn.Module):
         self.attention_output = self._scale_dot_attention(Q, K, V, mask).transpose(1, 2).contiguous().view(batch_size, -1, self.hidden_dim)
         output = self.fc_out(self.attention_output)
         # llama2的attention_output直接乘w_out后再做post_norm以及与x相加
-        # normed_output = self.post_norm(self.attention_output + x)
-        return output
+        normed_output = self.post_norm(self.fc_out(self.attention_output) + x)
+        return normed_output
