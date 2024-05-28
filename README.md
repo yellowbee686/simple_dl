@@ -1,4 +1,1 @@
-leetcode
-========
-
-The codes of LeetCode OJ
+simple_dl
