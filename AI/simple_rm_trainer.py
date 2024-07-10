@@ -5,10 +5,9 @@ from .simple_rl_loss import PairWiseLoss
 
 
 class RewardModelTrainer(ABC):
-    def __init__(self, model, tokenizer, train_dataset, use_margin=True):
+    def __init__(self, model, tokenizer, use_margin=True):
         self.model = model
         self.tokenizer = tokenizer
-        self.train_dataset = train_dataset
         self.use_margin = use_margin
         self.loss_fn = PairWiseLoss()
 
@@ -39,9 +38,9 @@ class RewardModelTrainer(ABC):
 
 
 
-    def train(self):
+    def train(self, train_dataset):
         self.model.train()
-        for chosen, reject, margin in self.train_dataset:
+        for chosen, reject, margin in train_dataset:
             chosen_tokens = self.tokenizer(chosen)
             chosen_ids = chosen_tokens['input_ids']
             chosen_mask = chosen_tokens['attention_mask']
