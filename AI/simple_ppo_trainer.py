@@ -24,5 +24,6 @@ class PPOTrainer(ABC):
         update_steps = args.rollout_batch_size // (world_size * args.micro_rollout_batch_size)
         steps = 1
         for prompts in train_dataset:
-
+            experience = self.experience_maker.make_experience(prompts)
+            self.re
         self.actor

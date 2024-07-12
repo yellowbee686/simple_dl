@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import random
 import torch.nn.functional as F
 from dataclasses import dataclass
 from abc import ABC
@@ -85,7 +86,7 @@ class ExperienceMaker(ABC):
 
 
 
-    def make_experience(self, prompts, **generate_kwargs):
+    def make_experience(self, prompts):
         self.actor.eval()
         self.critic.eval()
         self.ref_model.eval()
@@ -146,6 +147,52 @@ class ExperienceMaker(ABC):
         return experience
 
 
-        
+
+class ReplayBuffer(ABC):
+    def __init__(self, sample_batch_size, capacity = 128):
+        super().__init__()
+        self.sample_batch_size = sample_batch_size
+        self.capacity = capacity
+        self.items = []
+
+
+    def clear(self):
+        self.items.clear()
+
+    def append(self, experience):
+        # 不再拆分experience内的一个batch，这里也是有随机性的
+        self.items.append(experience)
+        if len(self.items) > self.capacity:
+            self.items = self.items[(len(self.items) - self.capacity):]
+
+    def sample(self):
+        if len(self.items) == 0:
+            return None
+        item_size = self.items[0].size(0)
+        sample_size = self.sample_batch_size // item_size
+        assert (sample_size * item_size == self.sample_batch_size), f"invalid sample_batch_size"
+        items = random.sample(self.items, sample_size)
+        sequences = torch.cat([i.sequences for i in items])
+        response_log_probs = torch.cat([i.response_log_probs for i in items])
+        values = torch.cat([i.values for i in items])
+        returns = torch.cat([i.returns for i in items])
+        advantages = torch.cat([i.advantages for i in items])
+        attention_mask = torch.cat([i.attention_mask for i in items])
+        response_mask = torch.cat([i.response_mask for i in items])
+        return Experience(sequences, response_log_probs, values, returns, advantages, attention_mask, response_mask)
+    
+    def normalize(self):
+        advs = torch.cat(torch.cat([i.advantages for i in self.items])).flatten()
+        response_mask = torch.cat([i.response_mask for i in self.items]).flatten()
+        adv_sum = advs.sum()
+        cnt = response_mask.sum()
+        adv_mean = adv_sum / cnt
+        std = ((advs - adv_mean) ** 2 * response_mask).sum()
+        rstd = (std / cnt).clamp(1e-8).rsqrt()
+        for i in self.items:
+            i.advantages = (i.advantages - adv_mean) / rstd
+
+
+
 
 
