@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from abc import ABC
 
 
-def get_log_probs(model, sequences, response_length, attention_mask):
-    output = model(sequences, attention_mask=attention_mask)
+def get_log_probs(model, sequences, response_length, response_mask):
+    output = model(sequences, attention_mask=response_mask)
     log_probs = label_log_probs(output['logits'][:, :-1, :], sequences[:, 1:])
     return log_probs[: -response_length:]
 
@@ -136,14 +136,13 @@ class ExperienceMaker(ABC):
         experience = Experience(
             sequences,
             log_probs,
+            ref_log_probs,
             values,
             returns,
             advantages,
             full_attention_mask,
             response_mask,
         )
-
-        self.actor.train()
         return experience
 
 
@@ -182,15 +181,17 @@ class ReplayBuffer(ABC):
         return Experience(sequences, response_log_probs, values, returns, advantages, attention_mask, response_mask)
     
     def normalize(self):
+        # flatten展平成1维
         advs = torch.cat(torch.cat([i.advantages for i in self.items])).flatten()
         response_mask = torch.cat([i.response_mask for i in self.items]).flatten()
         adv_sum = advs.sum()
         cnt = response_mask.sum()
         adv_mean = adv_sum / cnt
         std = ((advs - adv_mean) ** 2 * response_mask).sum()
+        # rsqrt为平方根的倒数
         rstd = (std / cnt).clamp(1e-8).rsqrt()
         for i in self.items:
-            i.advantages = (i.advantages - adv_mean) / rstd
+            i.advantages = (i.advantages - adv_mean) * rstd
 
 
 

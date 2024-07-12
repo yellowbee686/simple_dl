@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from abc import ABC
 from .simple_rl_loss import PairWiseLoss
+from transformers import AdamW, get_scheduler
+import math
 
 
 class RewardModelTrainer(ABC):
@@ -10,6 +12,15 @@ class RewardModelTrainer(ABC):
         self.tokenizer = tokenizer
         self.use_margin = use_margin
         self.loss_fn = PairWiseLoss()
+        self.lr = 3e-5
+        self.max_steps = 100000
+        self.optimizer = AdamW(model.paramaters(), lr=self.lr)
+        self.scheduler = get_scheduler(
+            'cosine',
+            self.optimizer,
+            num_warmup_steps=math.ceil(self.max_steps * 0.03),
+            num_training_steps=self.max_steps,
+        )
 
     def concat_input(self, chosen_ids, chosen_mask, reject_ids, reject_mask):
         def pad_to_length(tensor, length, pad_value, dim=-1):
@@ -55,3 +66,5 @@ class RewardModelTrainer(ABC):
 
             loss = self.loss_fn(chosen_rewards, reject_rewards, margin)
             self.model.backward(loss)
+            self.optimizer.step()
+            self.scheduler.step()
