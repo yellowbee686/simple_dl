@@ -25,7 +25,7 @@ class SimpleAttention(nn.Module):
         scale = torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
         logits = qk / scale
         if mask:
-            logits += mask * 1e-9
+            logits += mask * float('-inf')
         attention_weights = F.softmax(logits, dim=-1) # [B, n_head, seq, seq]
         output = torch.matmul(attention_weights, v) # [B, n_head, seq, h_dim]
         return output
