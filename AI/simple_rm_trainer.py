@@ -48,7 +48,6 @@ class RewardModelTrainer(ABC):
         return chosen_rewards, reject_rewards
 
 
-
     def train(self, train_dataset):
         self.model.train()
         for chosen, reject, margin in train_dataset:

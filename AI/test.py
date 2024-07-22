@@ -1,6 +1,8 @@
 import numpy
 import torch
 import torch.nn as nn
+from types import Tuple
+
 
 class LayerNorm(nn.Module):
     def __init__(self, feature_size, eps=1e-8):
@@ -88,23 +90,70 @@ class FFN(nn.Module):
             x_out = self.norm(x_out)
         return x_out
 
+
+def precompute_freqs_cis(dim: int, seq_len: int, theta: float = 10000.0):
+    # 计算词向量元素两两分组之后，每组元素对应的旋转角度
+    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
+    # 生成 token 序列索引 t = [0, 1,..., seq_len-1]
+    t = torch.arange(seq_len, device=freqs.device)
+    # freqs.shape = [seq_len, dim // 2] 
+    freqs = torch.outer(t, freqs).float()
+    # torch.polar 的文档
+    # https://pytorch.org/docs/stable/generated/torch.polar.html
+    # 计算结果是个复数向量
+    # 假设 freqs = [x, y]
+    # 则 freqs_cis = [cos(x) + sin(x)i, cos(y) + sin(y)i]
+    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
+    return freqs_cis
+
+def apply_rotary_emb(
+    xq: torch.Tensor,
+    xk: torch.Tensor,
+    freqs_cis: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    # xq.shape = [batch_size, seq_len, dim]
+    # xq_.shape = [batch_size, seq_len, dim // 2, 2]
+    xq_ = xq.float().reshape(*xq.shape[:-1], -1, 2)
+    xk_ = xk.float().reshape(*xk.shape[:-1], -1, 2)
+    
+    # 转为复数域
+    xq_ = torch.view_as_complex(xq_)
+    xk_ = torch.view_as_complex(xk_)
+    
+    # 应用旋转操作，然后将结果转回实数域
+    # xq_out.shape = [batch_size, seq_len, dim]
+    xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(2)
+    xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(2)
+    return xq_out.type_as(xq), xk_out.type_as(xk)
+
 class SimpleAttention(nn.Module):
-    def __init__(self, dim, num_heads, pre_norm=True):
+    def __init__(self, dim, num_heads, max_batch_size, max_seq_len, freqs_cis, pre_norm=True, num_kv_heads=0):
+        if num_kv_heads > 0:
+            self.num_kv_heads = num_kv_heads
+        else:
+            self.num_kv_heads = num_heads
         self.dim = dim
+        self.n_rep = self.num_heads // self.num_kv_heads
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
+        assert self.n_rep * self.num_kv_heads == self.num_heads, "num_heads must be devisible by num_kv_heads"
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
         self.wq = nn.Linear(dim, dim)
-        self.wk = nn.Linear(dim, dim)
-        self.wv = nn.Linear(dim, dim)
+        self.wk = nn.Linear(dim, self.head_dim * self.num_kv_heads)
+        self.wv = nn.Linear(dim, self.head_dim * self.num_kv_heads)
         self.fc_out = nn.Linear(dim, dim)
         self.pre_norm = pre_norm
+        self.cache_k = torch.zeros((max_batch_size, max_seq_len, num_heads, self.head_dim))
+        self.cache_q = torch.zeros((max_batch_size, max_seq_len, num_heads, self.head_dim))
         self.norm = RMSNorm(dim)
+        self.freqs_cis = freqs_cis
+
 
     def create_mask(self, size):
         mask = torch.ones(size, size).triu(diagonal=1)
         return mask
-    
+
+
     def scale_dot_attention(self, q, k, v, mask):
         scale = torch.sqrt(torch.tensor(self.head_dim, dtype=q.device))
         logits = torch.matmul(q, k.transpose(-1, -2)) / scale
@@ -112,10 +161,8 @@ class SimpleAttention(nn.Module):
             logits += mask * float('-inf')
         attn_weight = torch.softmax(logits, dim=-1)
         return torch.matmul(attn_weight, v)
-        
 
-
-    def forward(self, x, mask=None):
+    def forward(self, x, start_pos = 0, mask=None):
         batch_size = x.size(0)
         seq_len = x.size(1)
         if mask == None:
@@ -123,9 +170,28 @@ class SimpleAttention(nn.Module):
         ori_x = x
         if self.pre_norm:
             x = self.norm(x)
-        Q = self.wq(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        K = self.wk(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        V = self.wv(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        Q = self.wq(x)
+        K = self.wk(x)
+        V = self.wv(x)
+
+        Q, K = apply_rotary_emb(Q, K, self.freqs_cis)
+
+        Q = Q.view(batch_size, -1, self.num_heads, self.head_dim)
+        K = K.view(batch_size, -1, self.num_kv_heads, self.head_dim)
+        V = V.view(batch_size, -1, self.num_kv_heads, self.head_dim)
+
+        self.cache_q[:batch_size, start_pos:start_pos + seq_len] = Q
+        self.cache_k[:batch_size, start_pos:start_pos + seq_len] = K
+        Q = self.cache_q[:batch_size, :start_pos + seq_len]
+        K = self.cache_k[:batch_size, :start_pos + seq_len]
+
+        K = K.repeat(1, 1, self.n_rep, 1)
+        V = V.repeat(1, 1, self.n_rep, 1)
+
+        Q = Q.transpose(1, 2)
+        K = K.transpose(1, 2)
+        V = V.transpose(1, 2)
+
         attn_score = self.scale_dot_attention(Q, K, V, mask)
         attn_score = attn_score.transpose(1, 2).contiguous().view(batch_size, -1, self.dim)
         out = self.fc_out(attn_score)
@@ -135,3 +201,31 @@ class SimpleAttention(nn.Module):
             return self.norm(out + x)
 
     
+class TransformerBlock(nn.Module):
+    def __init__(self, dim, ffn_hidden_dim, num_heads, max_batch_size, max_seq_len, freqs_cis, pre_norm=True, num_kv_heads=0):
+        super().__init__()
+        self.attention = SimpleAttention(dim, num_heads, max_batch_size, max_seq_len, freqs_cis, pre_norm, num_kv_heads)
+        self.ffn = FFN(dim, ffn_hidden_dim, pre_norm)
+
+    def forward(self, x, start_pos = 0, mask=None):
+        attn_out = self.attention(x, start_pos, mask)
+        return self.ffn(attn_out)
+
+
+class Transformer(nn.Module):
+    def __init__(self, num_blocks, vocab_size, dim, ffn_hidden_dim, num_heads, max_batch_size, max_seq_len, pre_norm=True, num_kv_heads=0):
+        super().__init__()
+        self.blocks = []
+        self.freqs_cis = precompute_freqs_cis(dim, max_seq_len)
+        for i in range(num_blocks):
+            self.blocks.append(TransformerBlock(dim, ffn_hidden_dim, num_heads, max_batch_size, max_seq_len, self.freqs_cis, pre_norm, num_kv_heads))
+        
+        self.norm = RMSNorm(dim)
+        self.out_layer = nn.Linear(dim, vocab_size)
+
+    def forward(self, x, start_pos = 0, mask=None):
+        for block in self.blocks:
+            x = block(x, start_pos, mask)
+        x = self.norm(x)
+        out = self.out_layer(x)
+        return out
