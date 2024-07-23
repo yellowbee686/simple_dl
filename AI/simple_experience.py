@@ -56,7 +56,7 @@ class ExperienceMaker(ABC):
         self.max_len = self.prompt_max_len + 2048
         self.kl_coef = 0.02
         self.gamma = 1 # reward是否衰减 在LLM中设为1比较合理，目前的设置不符合越远的贡献越低的问题
-        self.lambd = 0.95 # TD-learning向前看多少，1时variance小 bias大，0时为TD(1) variance大 bias小
+        self.lambd = 0.95 # TD-learning向后看多少步，1时variance最大 bias最小，0时为TD(0) variance最小 bias最大
 
     def compute_reward(self, reward, log_probs, ref_log_probs, response_mask):
         # approx kl
