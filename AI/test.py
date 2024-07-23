@@ -160,6 +160,7 @@ class SimpleAttention(nn.Module):
         if mask:
             logits += mask * float('-inf')
         attn_weight = torch.softmax(logits, dim=-1)
+        
         return torch.matmul(attn_weight, v)
 
     def forward(self, x, start_pos = 0, mask=None):

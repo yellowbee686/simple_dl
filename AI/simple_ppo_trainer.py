@@ -56,6 +56,7 @@ class PPOTrainer(ABC):
             self.replay_buffer.append(experience)
             if steps % update_steps == 0:
                 self.replay_buffer.normalize()
+                self.ppo_train()
 
     
     def ppo_train(self):
