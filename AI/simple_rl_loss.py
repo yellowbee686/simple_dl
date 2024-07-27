@@ -36,12 +36,12 @@ class ValueLoss(nn.Module):
         self.value_loss_ratio = value_loss_ratio
         self.clip_bound = clip_bound
     
-    def forward(self, values, ref_values, returns, action_mask):
+    def forward(self, values, old_values, returns, action_mask):
         if self.clip_bound is not None:
-            values_clip = ref_values + (values - ref_values).clamp(-self.clip_bound, self.clip_bound)
+            values_clip = old_values + (values - old_values).clamp(-self.clip_bound, self.clip_bound)
             surr1 = (values - returns) ** 2
             surr2 = (values_clip - returns) ** 2
-            # max
+            # max 如果surr1较大，由于其已经限制了更新幅度，因此取它也是安全的，这样可以避免每次更新都过小
             loss = torch.max(surr1, surr2)
         else:
             loss = (values - returns) ** 2
