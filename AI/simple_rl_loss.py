@@ -58,3 +58,27 @@ class PairWiseLoss(nn.Module):
             loss = -F.logsigmoid(chosen_reward - reject_reward)
         return loss.mean()
     
+class DPOLoss(nn.Module):
+    def __init__(self, loss_type='dpo', beta=0.1):
+        super.__init__()
+        self.beta = beta
+        self.loss_type = loss_type
+
+    def forward(self,
+                policy_chosen_logps: torch.FloatTensor,
+                policy_rejected_logps: torch.FloatTensor,
+                ref_chosen_logps: torch.FloatTensor,
+                ref_rejected_logps: torch.FloatTensor,
+                chosen_position_kl: torch.FloatTensor,
+                rejected_position_kl: torch.FloatTensor):
+        policy_logp_ratio = policy_chosen_logps - policy_rejected_logps
+        ref_logp_ratio = ref_chosen_logps - ref_rejected_logps
+        if self.loss_type == 'dpo':
+            loss = -F.logsigmoid(self.beta * (policy_logp_ratio - ref_logp_ratio))
+        elif self.loss_type == 'raft':
+            loss = -policy_chosen_logps
+        elif self.loss_type == 'tdpo':
+            tdpo_alpha = 0.5
+            logits = policy_logp_ratio - ref_logp_ratio - tdpo_alpha * (rejected_position_kl - chosen_position_kl.detach())
+            loss = -F.logsigmoid(self.beta * logits)
+        return loss.mean()
