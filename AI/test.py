@@ -63,8 +63,8 @@ class SwiGLU(nn.Module):
     def __init__(self, in_features, out_features, beta=1.0) -> None:
         super().__init__()
         self.swish = Swish(beta)
-        self.gate_layer = nn.Linear(in_features, out_features)
-        self.value_layer = nn.Linear(in_features, out_features)
+        self.gate_layer = nn.Linear(in_features, out_features, bias=False)
+        self.value_layer = nn.Linear(in_features, out_features, bias=False)
 
     def forward(self, x):
         x_gate = self.swish(self.gate_layer(x))
@@ -75,7 +75,7 @@ class SwiGLU(nn.Module):
 class FFN(nn.Module):
     def __init__(self, dim, hidden_dim, pre_norm=True):
         self.swiglu = SwiGLU(dim, hidden_dim)
-        self.w3 = nn.Linear(hidden_dim, dim)
+        self.w3 = nn.Linear(hidden_dim, dim, bias=False)
         self.pre_norm = pre_norm
         self.norm = RMSNorm(dim)
 
@@ -200,7 +200,7 @@ class SimpleAttention(nn.Module):
         self.wq = nn.Linear(dim, dim)
         self.wk = nn.Linear(dim, self.head_dim * self.num_kv_heads)
         self.wv = nn.Linear(dim, self.head_dim * self.num_kv_heads)
-        self.fc_out = nn.Linear(dim, dim)
+        self.fc_out = nn.Linear(dim, dim, bias=False)
         self.pre_norm = pre_norm
         self.cache_k = torch.zeros((max_batch_size, max_seq_len, self.num_kv_heads, self.head_dim))
         self.cache_v = torch.zeros((max_batch_size, max_seq_len, self.num_kv_heads, self.head_dim))
