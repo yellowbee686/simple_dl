@@ -9,9 +9,9 @@ class SimpleAttention(nn.Module):
         self.num_heads =num_heads
         self.head_dim = hidden_dim // num_heads
         assert (self.head_dim * num_heads == hidden_dim), "must be divisible"
-        self.Wq = nn.Linear(hidden_dim, hidden_dim)
-        self.Wk = nn.Linear(hidden_dim, hidden_dim)
-        self.Wv = nn.Linear(hidden_dim, hidden_dim)
+        self.Wq = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.Wk = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.Wv = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.post_norm = RMSNorm(hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, hidden_dim, bias=False)
 
