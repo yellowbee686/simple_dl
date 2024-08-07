@@ -20,8 +20,8 @@ class PolicyLoss(nn.Module):
         super.__init__()
         self.clip_bound = clip_bound
 
-    def forward(self, log_probs, ref_log_probs, advantages, action_mask):
-        ratio = (log_probs - ref_log_probs).exp()
+    def forward(self, log_probs, old_log_probs, advantages, action_mask):
+        ratio = (log_probs - old_log_probs).exp()
         surr1 = ratio * advantages
         surr2 = ratio.clamp(1 - self.clip_bound, 1+ self.clip_bound) * advantages
         # -min
