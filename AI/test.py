@@ -138,10 +138,10 @@ class SimpleAttention(nn.Module):
         self.n_rep = self.num_heads // self.num_kv_heads
         assert self.n_rep * self.num_kv_heads == self.num_heads, "num_heads must be devisible by num_kv_heads"
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
-        self.wq = nn.Linear(dim, dim)
-        self.wk = nn.Linear(dim, self.head_dim * self.num_kv_heads)
-        self.wv = nn.Linear(dim, self.head_dim * self.num_kv_heads)
-        self.fc_out = nn.Linear(dim, dim)
+        self.wq = nn.Linear(dim, dim, bias=False)
+        self.wk = nn.Linear(dim, self.head_dim * self.num_kv_heads, bias=False)
+        self.wv = nn.Linear(dim, self.head_dim * self.num_kv_heads, bias=False)
+        self.fc_out = nn.Linear(dim, dim, bias=False)
         self.norm = RMSNorm(dim)
         self.freq_cis = freq_cis
         self.cache_k = torch.zeros((max_batch_size, max_seq_len, self.num_kv_heads, self.head_dim))
@@ -182,83 +182,6 @@ class SimpleAttention(nn.Module):
         attn_score = self.scale_dot_attention(Q, K, V, mask).transpose(1, 2).contiguous().view(batch_size, -1, self.dim)
         out = x + self.fc_out(attn_score)
         return out
-
-
-
-class SimpleAttention(nn.Module):
-    def __init__(self, dim, num_heads, max_batch_size, max_seq_len, freqs_cis, pre_norm=True, num_kv_heads=0):
-        if num_kv_heads > 0:
-            self.num_kv_heads = num_kv_heads
-        else:
-            self.num_kv_heads = num_heads
-        self.dim = dim
-        self.n_rep = self.num_heads // self.num_kv_heads
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        assert self.n_rep * self.num_kv_heads == self.num_heads, "num_heads must be devisible by num_kv_heads"
-        assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
-        self.wq = nn.Linear(dim, dim)
-        self.wk = nn.Linear(dim, self.head_dim * self.num_kv_heads)
-        self.wv = nn.Linear(dim, self.head_dim * self.num_kv_heads)
-        self.fc_out = nn.Linear(dim, dim, bias=False)
-        self.pre_norm = pre_norm
-        self.cache_k = torch.zeros((max_batch_size, max_seq_len, self.num_kv_heads, self.head_dim))
-        self.cache_v = torch.zeros((max_batch_size, max_seq_len, self.num_kv_heads, self.head_dim))
-        self.norm = RMSNorm(dim)
-        self.freqs_cis = freqs_cis
-
-
-    def create_mask(self, size):
-        mask = torch.ones(size, size).triu(diagonal=1)
-        return mask
-
-
-    def scale_dot_attention(self, q, k, v, mask):
-        scale = torch.sqrt(torch.tensor(self.head_dim, dtype=q.device))
-        logits = torch.matmul(q, k.transpose(-1, -2)) / scale
-        if mask:
-            logits += mask * float('-inf')
-        attn_weight = torch.softmax(logits, dim=-1)
-        
-        return torch.matmul(attn_weight, v)
-
-    def forward(self, x, start_pos = 0, mask=None):
-        batch_size = x.size(0)
-        seq_len = x.size(1)
-        if mask == None:
-            mask = self.create_mask(seq_len)
-        ori_x = x
-        if self.pre_norm:
-            x = self.norm(x)
-        Q = self.wq(x)
-        K = self.wk(x)
-        V = self.wv(x)
-
-        Q, K = apply_rotary_emb(Q, K, self.freqs_cis)
-
-        Q = Q.view(batch_size, -1, self.num_heads, self.head_dim)
-        K = K.view(batch_size, -1, self.num_kv_heads, self.head_dim)
-        V = V.view(batch_size, -1, self.num_kv_heads, self.head_dim)
-
-        self.cache_v[:batch_size, start_pos:start_pos + seq_len] = V
-        self.cache_k[:batch_size, start_pos:start_pos + seq_len] = K
-        V = self.cache_v[:batch_size, :start_pos + seq_len]
-        K = self.cache_k[:batch_size, :start_pos + seq_len]
-
-        K = K.repeat(1, 1, self.n_rep, 1)
-        V = V.repeat(1, 1, self.n_rep, 1)
-
-        Q = Q.transpose(1, 2)
-        K = K.transpose(1, 2)
-        V = V.transpose(1, 2)
-
-        attn_score = self.scale_dot_attention(Q, K, V, mask)
-        attn_score = attn_score.transpose(1, 2).contiguous().view(batch_size, -1, self.dim)
-        out = self.fc_out(attn_score)
-        if self.pre_norm:
-            return out + ori_x
-        else:
-            return self.norm(out + x)
 
     
 class TransformerBlock(nn.Module):
