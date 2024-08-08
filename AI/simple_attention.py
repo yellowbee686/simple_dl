@@ -12,7 +12,7 @@ class SimpleAttention(nn.Module):
         self.Wq = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.Wk = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.Wv = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.post_norm = RMSNorm(hidden_dim)
+        self.norm = RMSNorm(hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, hidden_dim, bias=False)
 
     def _create_look_ahead_mask(self, size):
@@ -33,13 +33,12 @@ class SimpleAttention(nn.Module):
     def forward(self, x, mask):
         batch_size = x.shape[0]
         sequence_length = x.shape[1]
+        x = self.norm(x)
         if mask == None:
             mask = self._create_look_ahead_mask(sequence_length)
         Q = self.Wq(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         K = self.Wk(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.Wv(x).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        self.attention_output = self._scale_dot_attention(Q, K, V, mask).transpose(1, 2).contiguous().view(batch_size, -1, self.hidden_dim)
-        output = self.fc_out(self.attention_output)
-        # llama2的attention_output直接乘w_out后再做post_norm以及与x相加
-        normed_output = self.post_norm(self.fc_out(self.attention_output) + x)
-        return normed_output
+        self.attn_score = self._scale_dot_attention(Q, K, V, mask).transpose(1, 2).contiguous().view(batch_size, -1, self.hidden_dim)
+        output = self.fc_out(self.attention_output) + x
+        return output

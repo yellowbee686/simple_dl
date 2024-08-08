@@ -24,7 +24,7 @@ class PolicyLoss(nn.Module):
         ratio = (log_probs - old_log_probs).exp()
         surr1 = ratio * advantages
         surr2 = ratio.clamp(1 - self.clip_bound, 1+ self.clip_bound) * advantages
-        # -min
+        # minimize -min
         loss = -torch.min(surr1, surr2)
         loss = (loss * action_mask).sum(axis=-1) / action_mask.sum(axis=-1)
         return loss
