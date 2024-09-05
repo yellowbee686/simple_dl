@@ -38,6 +38,8 @@ class SimpleCLIP(nn.Module):
         image_embedding = F.norm(image_embedding, dim=1)  # [B, dim]
         text_embedding = F.norm(text_embedding, dim=1)  # [B, dim]
         # 每一行代表一个image和所有text计算logits 每一列代表一个text和所有image计算logits
+        # logit_scale 取exp是为了保证这个参数无论正负，logit_scale.exp()始终为正，对logits的影响始终是正常的而不发生错误
+        # 学习率控制，这样logit_scale在更新时是log(logit_scale)的速度更新，化乘法为加法，能够使该参数的学习更稳定
         image_logits = torch.matmul(image_embedding, text_embedding.T) * self.logit_scale.exp()  # [B, B]
         text_logits = image_logits.T
         labels = torch.arange(batch_size).to(images.device)
